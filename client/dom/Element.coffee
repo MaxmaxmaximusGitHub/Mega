@@ -14,8 +14,10 @@ export class Element
 		Node.create(self, parent)
 
 		self.isElement = yes
-		self.attrs = attrs
+		self.attrs = attrs or {}
 		self.tag = tag
+
+		console.log self.attrs
 
 		if childHandler
 			self.children = childHandler(self)

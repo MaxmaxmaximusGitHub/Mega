@@ -29,7 +29,7 @@ export class TemplateCompiler
 			depends: JSON.stringify(@getTags(block))
 			render : @compileRendererFunc(block, 2)
 
-		code = @objToString(templateData)
+		code = @compileObj(templateData)
 		return code
 
 
@@ -51,11 +51,18 @@ export class TemplateCompiler
 		return tags
 
 
-	objToString: (obj)->
+	compileObj: (obj, withNewLine = yes)->
 		lines = Object.keys(obj).map (key)=>
-			return "\t#{key}: #{obj[key]}"
-		code = lines.join(',\n\n')
-		code = "{\n#{code}\n}"
+			return "#{key}: #{obj[key]}"
+
+		if withNewLine
+			lines = lines.map (line)=> "\t" + line
+			code = lines.join(',\n\n')
+			code = "{\n#{code}\n}"
+		else
+			code = lines.join(', ')
+			code = "{#{code}}"
+
 		return code
 
 
@@ -92,8 +99,8 @@ export class TemplateCompiler
 	compileNode: (node, indentLevel = 0)->
 		return switch node.type
 			when 'element' then @compileElement(node, indentLevel)
-			when 'text' then @compileText(node, indentLevel)
 			when 'comment' then @compileComment(node, indentLevel)
+			when 'text' then @compileText(node, indentLevel)
 			when 'if' then @compileIf(node, indentLevel)
 			else
 				console.log 'unknown ast node type', node
@@ -103,7 +110,7 @@ export class TemplateCompiler
 		indent = @_indentation(indentLevel)
 
 		variantsCodes = node.variants.map (variant)=>
-			expCode = @compileExpGetter(variant.exp)
+			expCode = @compileGetter(variant.exp)
 			contentCode = @compileBlock(variant.content, indentLevel + 1)
 			variantCode = "[#{expCode}, (#{@PARENT}) => #{contentCode}]"
 			return variantCode
@@ -123,7 +130,8 @@ export class TemplateCompiler
 
 	compileElement: (node, indentLevel = 0)->
 		tag = pascalCase(node.tag)
-		code = "new #{@UI}.dom.#{tag}(#{@PARENT}, null"
+		codeAttrs = @compileAttrs(node.attrs)
+		code = "new #{@UI}.dom.#{tag}(#{@PARENT}, #{codeAttrs}"
 
 		if node.children.length
 			childrenBlock = @compileBlock(node.children, indentLevel + 1)
@@ -133,12 +141,44 @@ export class TemplateCompiler
 		return code
 
 
-	compileText: (node, indentLevel = 0)->
+	compileAttrs: (attrs)->
+		attrsObj = {}
+
+		if attrs.ids.length
+			ids = attrs.ids.map (idExp)=>
+				return @compileGetterOrValue(idExp)
+			attrsObj.ids = @compileArr(ids)
+
+		if attrs.classes.length
+			classes = attrs.classes.map (classExp)=>
+				return @compileGetterOrValue(classExp)
+			attrsObj.classes = @compileArr(classes)
+
+		if attrs.events.length
+			events = attrs.events.map (event)=>
+				return "{
+					name: #{@string(event.name)},
+					exp: #{@compileGetter(event.exp)}
+				}"
+			attrsObj.events = @compileArr(events)
+
+		unless Object.keys(attrsObj).length
+			return 'null'
+
+		code = @compileObj(attrsObj, off)
+		return code
+
+
+	compileArr: (parts)->
+		return "[#{parts.join(', ')}]"
+
+
+	compileText: (node)->
 		parts = node.parts.map (part)=>
 			if part.type is 'text'
 				return @string(part.value)
 			else
-				return @compileExpGetter(part.value)
+				return @compileGetter(part.value)
 
 		code = "new #{@UI}.Text(#{@PARENT}, [#{parts.join(', ')}])"
 		return code
@@ -150,12 +190,22 @@ export class TemplateCompiler
 		return code
 
 
-	compileExpGetter: (code)->
-		return "() => (#{@SCOPE}.#{code})"
+	SIMPLE_STRING_LITERAL_REG_EXP = /^\s*("|')(?:(?!\1).)*\1\s*$/
 
 
-	compileExpSetter: (code)->
-		return "(#{@VALUE}) => (#{@SCOPE}.#{code} = #{@VALUE})"
+	compileGetterOrValue: (exp)->
+		if SIMPLE_STRING_LITERAL_REG_EXP.test(exp)
+			return exp
+
+		return @compileGetter(exp)
+
+
+	compileGetter: (exp)->
+		return "() => (#{@SCOPE}.#{exp})"
+
+
+	compileSetter: (exp)->
+		return "(#{@VALUE}) => (#{@SCOPE}.#{exp} = #{@VALUE})"
 
 
 	parse: (code)->
@@ -233,7 +283,7 @@ export class TemplateCompiler
 
 			attrs:
 				ids    : parsedAttrs.ids
-				attrs  : parsedAttrs.attrs
+				props  : parsedAttrs.props
 				events : parsedAttrs.events
 				classes: parsedAttrs.classes
 
@@ -249,7 +299,7 @@ export class TemplateCompiler
 
 	_parseAttrs: (allAttrs)->
 		ids = []
-		attrs = []
+		props = []
 		events = []
 		classes = []
 
@@ -262,7 +312,7 @@ export class TemplateCompiler
 
 			else if match = name.match(@STYLE_REGEX)
 				name = "style.#{camelCase(match[1])}"
-				attrs.push({name, value: val})
+				props.push({path: name, exp: val})
 
 			else if name is 'id'
 				ids.push(val)
@@ -280,12 +330,12 @@ export class TemplateCompiler
 				if val is true
 					classes.push("'#{match[1]}'")
 				else
-					classes.push("#{val} ? '#{match[1]}' : ''")
+					classes.push("#{val} && '#{match[1]}'")
 
 			else
-				attrs.push({name, value: val})
+				props.push({path: name, exp: val})
 
-		return {ids, classes, attrs, events}
+		return {ids, classes, props, events}
 
 
 	parseEach: (eachAstNode)->

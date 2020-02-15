@@ -9,7 +9,6 @@ import {test} from "./core/test"
 
 
 appTemplate = TemplateCompiler.create(require './App.pug')
-buttonTemplate = TemplateCompiler.create(require './Button.pug')
 
 
 class App extends Component
@@ -27,25 +26,6 @@ class App extends Component
 		return
 
 
-class Button extends Component
-
-	@addTemplate(buttonTemplate)
-	@register()
-
-	constructor: ->
-		super()
-		@buttonScope = 'buttonScope'
-
-		setInterval =>
-			@buttonScope += '!'
-		, 1001
-		return
-
-
-
-
-
-
 app = new ui.dom.App()
 document.body.innerHTML = HTMLRenderer.render(app)
 
@@ -53,4 +33,3 @@ document.body.innerHTML = HTMLRenderer.render(app)
 #setInterval =>
 #	document.body.innerHTML = HTMLRenderer.render(app)
 #, 500
-
